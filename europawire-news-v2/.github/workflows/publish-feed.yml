@@ -1,0 +1,54 @@
+name: Publicera RSS-feed
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Var 15:e minut
+  workflow_dispatch:  # Möjliggör manuell körning
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checka ut kod
+        uses: actions/checkout@v4
+
+      - name: Installera Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installera beroenden
+        run: pip install -r requirements.txt
+
+      - name: Generera RSS- och Atom-feed
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: python scripts/generate_feed.py
+
+      - name: Förbered GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: Ladda upp artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'public'
+
+      - name: Publicera till GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

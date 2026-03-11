@@ -1,0 +1,29 @@
+name: Rensa gamla pressmeddelanden
+
+on:
+  schedule:
+    - cron: '0 3 * * *'  # Varje dag kl 03:00 UTC
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checka ut kod
+        uses: actions/checkout@v4
+
+      - name: Installera Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installera beroenden
+        run: pip install -r requirements.txt
+
+      - name: Rensa gamla poster
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: python scripts/cleanup.py

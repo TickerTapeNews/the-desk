@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Europawire News - AI-sammanfattade pressmeddelanden</title>
+    <link rel="alternate" type="application/rss+xml" title="RSS Feed" href="feed.xml">
+    <link rel="alternate" type="application/atom+xml" title="Atom Feed" href="atom.xml">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            max-width: 600px;
+            padding: 3rem 2rem;
+            text-align: center;
+        }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            color: #94a3b8;
+            margin-bottom: 2rem;
+            font-size: 1.1rem;
+        }
+        .feeds {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-top: 2rem;
+        }
+        .feed-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1.5rem;
+            background: #1e293b;
+            color: #60a5fa;
+            text-decoration: none;
+            border-radius: 8px;
+            border: 1px solid #334155;
+            transition: all 0.2s;
+        }
+        .feed-link:hover {
+            background: #334155;
+            border-color: #60a5fa;
+        }
+        .info {
+            margin-top: 2rem;
+            color: #64748b;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Europawire News</h1>
+        <p class="subtitle">AI-sammanfattade europeiska pressmeddelanden för investerare</p>
+
+        <p style="color: #94a3b8; line-height: 1.6;">
+            Pressmeddelanden från Europawire sammanfattas automatiskt av Claude AI
+            med impact score (1-5) och ISIN-nummer.
+        </p>
+
+        <div class="feeds">
+            <a href="feed.xml" class="feed-link">
+                📡 RSS Feed
+            </a>
+            <a href="atom.xml" class="feed-link">
+                ⚛️ Atom Feed
+            </a>
+        </div>
+
+        <p class="info">
+            Feeden uppdateras var 15:e minut.<br>
+            Lägg till feed-URL:en i din RSS-läsare för att följa nyheterna.
+        </p>
+    </div>
+</body>
+</html>
