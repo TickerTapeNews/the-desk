@@ -1,7 +1,6 @@
 """
 Hämtar obearbetade pressmeddelanden från Turso och sammanfattar dem med Claude Haiku.
-Sparar sammanfattningar tillbaka i databasen.
-Körs var 10:e minut via GitHub Actions.
+Anpassar prompten beroende på källa (Europawire vs SEC EDGAR).
 """
 
 import os
@@ -12,24 +11,20 @@ from anthropic import Anthropic
 
 
 def get_db_connection():
-    """Anslut till Turso-databasen."""
     url = os.environ.get("TURSO_DATABASE_URL")
     token = os.environ.get("TURSO_AUTH_TOKEN")
-
     if not url or not token:
         print("FEL: TURSO_DATABASE_URL och TURSO_AUTH_TOKEN måste vara satta.")
         sys.exit(1)
-
     conn = libsql.connect("local.db", sync_url=url, auth_token=token)
     conn.sync()
     return conn
 
 
 def get_unprocessed(conn, limit=10):
-    """Hämta pressmeddelanden som inte har sammanfattats ännu."""
     result = conn.execute(
         """
-        SELECT id, title, content, description, link
+        SELECT id, title, content, description, link, source
         FROM press_releases
         WHERE processed = 0
         ORDER BY fetched_at ASC
@@ -44,21 +39,48 @@ def get_unprocessed(conn, limit=10):
             "title": row[1],
             "content": row[2] or row[3] or "",
             "link": row[4] or "",
+            "source": row[5] or "europawire",
         }
         for row in rows
     ]
 
 
-def summarize_with_claude(client, press_release):
-    """Skicka pressmeddelande till Claude Haiku för sammanfattning."""
+def get_prompt(press_release):
+    """Returnera prompt anpassad efter källa."""
     title = press_release["title"]
     content = press_release["content"]
+    source = press_release["source"]
 
-    # Begränsa innehållet för att spara tokens
     if len(content) > 8000:
         content = content[:8000] + "..."
 
-    prompt = f"""Du är en finansnyhetsjournalist. Analysera följande pressmeddelande och returnera ett JSON-objekt.
+    if source == "sec_edgar":
+        return f"""Du är en finansnyhetsjournalist specialiserad på amerikanska börsmarknaden. Analysera följande SEC 8-K filing och returnera ett JSON-objekt.
+
+SEC 8-K FILING:
+Titel: {title}
+Innehåll: {content}
+
+INSTRUKTIONER:
+1. Sammanfatta filingen till en kort nyhetsartikel, relevant för en investerare. Max 700 tecken. Skriv på engelska.
+2. Skapa en tydlig nyhetsrubrik på engelska.
+3. Ge ett "impact_score" från 1-5 där högre = mer förväntad kurspåverkan.
+   - 1 = Rutinmässigt (t.ex. administrativa ändringar, regelmässiga uppdateringar)
+   - 2 = Viss relevans (t.ex. styrelseförändringar, mindre avtal)
+   - 3 = Märkbar påverkan (t.ex. nya kontrakt, expansioner, omstruktureringar)
+   - 4 = Betydande påverkan (t.ex. stora förvärv, resultatvarningar, VD-byten)
+   - 5 = Mycket hög påverkan (t.ex. fusioner, konkurs, SEC-utredningar)
+4. Ange ticker-symbol för bolaget om du kan identifiera det. Annars ange "unknown".
+
+Svara ENBART med ett JSON-objekt (ingen annan text):
+{{
+    "title": "News headline here",
+    "summary": "Summary here (max 700 chars)",
+    "impact_score": 3,
+    "isin": "TICKER eller unknown"
+}}"""
+    else:
+        return f"""Du är en finansnyhetsjournalist. Analysera följande pressmeddelande och returnera ett JSON-objekt.
 
 PRESSMEDDELANDE:
 Titel: {title}
@@ -75,13 +97,17 @@ INSTRUKTIONER:
    - 5 = Mycket hög påverkan (t.ex. fusioner, VD-byten, vinstvarningar)
 4. Ange ISIN-nummer för bolaget som är avsändare. Om du inte vet ISIN eller om bolaget inte är listat på en europeisk börs, ange "unlisted".
 
-Svara ENBART med ett JSON-objekt i detta format (ingen annan text):
+Svara ENBART med ett JSON-objekt (ingen annan text):
 {{
     "title": "Nyhetsrubrik här",
     "summary": "Sammanfattning här (max 700 tecken)",
     "impact_score": 3,
     "isin": "SE0000000001 eller unlisted"
 }}"""
+
+
+def summarize_with_claude(client, press_release):
+    prompt = get_prompt(press_release)
 
     try:
         response = client.messages.create(
@@ -92,7 +118,6 @@ Svara ENBART med ett JSON-objekt i detta format (ingen annan text):
 
         response_text = response.content[0].text.strip()
 
-        # Rensa eventuella markdown code blocks
         if response_text.startswith("```"):
             response_text = response_text.split("\n", 1)[1]
             if response_text.endswith("```"):
@@ -101,19 +126,16 @@ Svara ENBART med ett JSON-objekt i detta format (ingen annan text):
 
         result = json.loads(response_text)
 
-        # Validera
-        assert "title" in result, "Saknar 'title'"
-        assert "summary" in result, "Saknar 'summary'"
-        assert "impact_score" in result, "Saknar 'impact_score'"
-        assert isinstance(result["impact_score"], int), "impact_score måste vara int"
-        assert 1 <= result["impact_score"] <= 5, "impact_score måste vara 1-5"
+        assert "title" in result
+        assert "summary" in result
+        assert "impact_score" in result
+        assert isinstance(result["impact_score"], int)
+        assert 1 <= result["impact_score"] <= 5
 
-        # Begränsa sammanfattning till 700 tecken
         if len(result["summary"]) > 700:
             result["summary"] = result["summary"][:697] + "..."
 
         result.setdefault("isin", "unlisted")
-
         return result
 
     except json.JSONDecodeError as e:
@@ -126,7 +148,6 @@ Svara ENBART med ett JSON-objekt i detta format (ingen annan text):
 
 
 def process_press_releases(conn, client):
-    """Bearbeta alla obearbetade pressmeddelanden."""
     unprocessed = get_unprocessed(conn)
 
     if not unprocessed:
@@ -136,34 +157,24 @@ def process_press_releases(conn, client):
     print(f"Bearbetar {len(unprocessed)} pressmeddelanden...")
 
     for pr in unprocessed:
-        print(f"\n  Sammanfattar: {pr['title'][:70]}...")
+        print(f"\n  [{pr['source']}] Sammanfattar: {pr['title'][:70]}...")
         result = summarize_with_claude(client, pr)
 
         if result:
             try:
                 conn.execute(
-                    """
-                    INSERT INTO summaries (press_release_id, title, summary, impact_score, isin)
-                    VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (
-                        pr["id"],
-                        result["title"],
-                        result["summary"],
-                        result["impact_score"],
-                        result.get("isin", "unlisted"),
-                    ),
+                    """INSERT INTO summaries (press_release_id, title, summary, impact_score, isin)
+                    VALUES (?, ?, ?, ?, ?)""",
+                    (pr["id"], result["title"], result["summary"],
+                     result["impact_score"], result.get("isin", "unlisted")),
                 )
-
                 conn.execute(
                     "UPDATE press_releases SET processed = 1 WHERE id = ?",
                     (pr["id"],),
                 )
-
                 conn.commit()
                 conn.sync()
                 print(f"    ✓ Sparat (impact: {result['impact_score']}, isin: {result.get('isin', 'unlisted')})")
-
             except Exception as e:
                 print(f"    FEL vid databasinsättning: {e}")
         else:
