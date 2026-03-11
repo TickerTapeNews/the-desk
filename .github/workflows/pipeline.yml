@@ -1,0 +1,79 @@
+name: Hämta, sammanfatta och publicera
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Var 15:e minut
+  workflow_dispatch:  # Möjliggör manuell körning
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "news-pipeline"
+  cancel-in-progress: false
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checka ut kod
+        uses: actions/checkout@v4
+
+      - name: Installera Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installera beroenden
+        run: pip install -r requirements.txt
+
+      # --- STEG 1: Hämta från alla källor ---
+
+      - name: Hämta Europawire RSS
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: python scripts/fetch_rss.py
+
+      - name: Hämta SEC EDGAR 8-K
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: python scripts/fetch_sec_edgar.py
+
+      # --- STEG 2: Sammanfatta med Claude Haiku ---
+
+      - name: Sammanfatta pressmeddelanden
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/summarize.py
+
+      # --- STEG 3: Publicera RSS-feed ---
+
+      - name: Generera RSS- och Atom-feed
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: python scripts/generate_feed.py
+
+      - name: Förbered GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: Ladda upp artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'public'
+
+      - name: Publicera till GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
