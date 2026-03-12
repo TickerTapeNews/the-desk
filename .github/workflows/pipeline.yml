@@ -2,7 +2,7 @@ name: Hämta, sammanfatta och publicera
 
 on:
   schedule:
-   - cron: '*/15 3-22 * * *'
+   - cron: '*/30 3-22 * * *'
   workflow_dispatch:  # Möjliggör manuell körning
 
 permissions:
